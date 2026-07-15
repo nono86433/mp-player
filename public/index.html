@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nebula Stream - 雲端音樂與影片播放器</title>
+  <!-- Google Fonts: Outfit & Noto Sans TC -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Main Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 背景動態光暈 -->
+  <div class="bg-glow">
+    <div class="glow-circle circle-1"></div>
+    <div class="glow-circle circle-2"></div>
+  </div>
+
+  <div class="app-container">
+    <!-- 1. 左側側邊欄 -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">
+          <i data-lucide="music"></i>
+        </div>
+        <span class="brand-name">Nebula Stream</span>
+      </div>
+
+      <div class="sidebar-menu">
+        <div class="menu-section">
+          <h3>媒體庫</h3>
+          <ul class="menu-list">
+            <li class="menu-item active" id="btn-all-songs">
+              <i data-lucide="music-4"></i>
+              <span>所有歌曲</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="menu-section">
+          <div class="section-header">
+            <h3>我的歌單</h3>
+            <button class="icon-btn" id="btn-new-playlist" title="建立新歌單">
+              <i data-lucide="plus"></i>
+            </button>
+          </div>
+          
+          <!-- 建立歌單輸入框 (預設隱藏，點擊 plus 顯示) -->
+          <div class="playlist-create-box hidden" id="playlist-create-box">
+            <input type="text" id="input-playlist-name" placeholder="輸入歌單名稱..." autocomplete="off">
+            <div class="create-actions">
+              <button class="btn btn-sm btn-secondary" id="btn-cancel-playlist">取消</button>
+              <button class="btn btn-sm btn-primary" id="btn-save-playlist">建立</button>
+            </div>
+          </div>
+
+          <ul class="menu-list" id="playlists-list">
+            <!-- 動態插入歌單 -->
+          </ul>
+        </div>
+      </div>
+
+      <!-- 拖曳上傳區 -->
+      <div class="upload-dropzone" id="dropzone">
+        <i data-lucide="upload-cloud"></i>
+        <p>拖曳 MP3 / MP4 至此上傳</p>
+        <span class="upload-hint">或點擊選擇檔案</span>
+        <input type="file" id="file-input" accept="audio/mp3,audio/mpeg,video/mp4" multiple class="hidden">
+      </div>
+    </aside>
+
+    <!-- 2. 中間/右側主內容區 -->
+    <main class="main-content">
+      <!-- 頂部導覽列 -->
+      <header class="top-nav">
+        <div class="search-bar">
+          <i data-lucide="search"></i>
+          <input type="text" id="search-input" placeholder="搜尋歌曲或歌手...">
+        </div>
+        <div class="nav-actions">
+          <button class="btn btn-primary" id="btn-upload-trigger">
+            <i data-lucide="upload"></i>
+            <span>上傳音樂/影片</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- 主要內容網格 -->
+      <div class="content-grid">
+        <!-- 播放器主面板 (左側) -->
+        <section class="player-panel">
+          <div class="player-card">
+            <!-- 視訊播放容器 (如果是 MP4 則顯示) -->
+            <div class="video-container hidden" id="video-container">
+              <video id="video-player" crossorigin="anonymous" playsinline></video>
+              <button class="close-video-btn" id="btn-close-video" title="關閉影片視窗">
+                <i data-lucide="minimize-2"></i>
+              </button>
+            </div>
+
+            <!-- 音樂封面與頻譜 (如果是 MP3 則顯示) -->
+            <div class="visualizer-container" id="visualizer-container">
+              <button class="toggle-lyrics-btn" id="btn-toggle-lyrics" title="切換歌詞 / 頻譜">
+                <i data-lucide="file-text"></i>
+              </button>
+
+              <div class="cover-wrapper" id="cover-wrapper">
+                <div class="album-cover" id="album-cover">
+                  <div class="cover-inner">
+                    <i data-lucide="disc" class="cover-icon-default"></i>
+                    <img id="cover-img" src="" alt="Album Cover" class="hidden">
+                  </div>
+                </div>
+              </div>
+              <canvas id="visualizer-canvas"></canvas>
+
+              <!-- 滾動歌詞區域 (預設隱藏) -->
+              <div class="lyrics-wrapper hidden" id="lyrics-wrapper">
+                <div class="lyrics-container" id="lyrics-container">
+                  <!-- 動態產生歌詞 -->
+                </div>
+                <button class="edit-lyrics-btn" id="btn-edit-lyrics" title="編輯歌詞">
+                  <i data-lucide="edit-3"></i>
+                  <span>編輯歌詞</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="song-meta">
+              <h2 id="current-title">未播放歌曲</h2>
+              <p id="current-artist">請從清單選擇歌曲或上傳新歌</p>
+            </div>
+
+            <!-- 媒體元素 (隱藏的 audio) -->
+            <audio id="audio-player" crossorigin="anonymous"></audio>
+
+            <!-- 播放進度條 -->
+            <div class="progress-container">
+              <span class="time-stamp" id="time-current">0:00</span>
+              <div class="progress-bar-wrapper" id="progress-wrapper">
+                <div class="progress-bar" id="progress-bar"></div>
+                <div class="progress-knob" id="progress-knob"></div>
+              </div>
+              <span class="time-stamp" id="time-duration">0:00</span>
+            </div>
+
+            <!-- 播放控制鍵 -->
+            <div class="controls-container">
+              <button class="control-btn" id="btn-shuffle" title="隨機播放">
+                <i data-lucide="shuffle"></i>
+              </button>
+              
+              <button class="control-btn" id="btn-prev" title="上一首">
+                <i data-lucide="skip-back"></i>
+              </button>
+
+              <button class="control-btn play-btn" id="btn-play-pause" title="播放">
+                <i data-lucide="play" id="icon-play"></i>
+              </button>
+
+              <button class="control-btn" id="btn-next" title="下一首">
+                <i data-lucide="skip-forward"></i>
+              </button>
+
+              <button class="control-btn" id="btn-repeat" title="單曲循環">
+                <i data-lucide="repeat"></i>
+              </button>
+            </div>
+
+            <!-- 輔助控制欄 (音量、播放速度) -->
+            <div class="extra-controls">
+              <div class="volume-control">
+                <button class="control-btn-sm" id="btn-mute" title="靜音">
+                  <i data-lucide="volume-2" id="icon-volume"></i>
+                </button>
+                <div class="volume-slider-wrapper" id="volume-wrapper">
+                  <div class="volume-bar" id="volume-bar" style="width: 80%;"></div>
+                </div>
+              </div>
+
+              <div class="speed-control">
+                <label for="select-speed">速度：</label>
+                <select id="select-speed" class="speed-select">
+                  <option value="0.5">0.5x</option>
+                  <option value="0.75">0.75x</option>
+                  <option value="1" selected>1.0x</option>
+                  <option value="1.25">1.25x</option>
+                  <option value="1.5">1.5x</option>
+                  <option value="2">2.0x</option>
+                </select>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- 歌曲清單與歌單資訊 (右側) -->
+        <section class="songs-list-panel">
+          <div class="panel-header">
+            <div class="playlist-info">
+              <h1 id="playlist-title">所有歌曲</h1>
+              <p id="playlist-desc">共 <span id="songs-count">0</span> 首媒體檔案</p>
+            </div>
+            
+            <div class="playlist-actions">
+              <!-- 分享歌單按鈕 (當前非「所有歌曲」時顯示) -->
+              <button class="btn btn-secondary btn-share hidden" id="btn-share-playlist">
+                <i data-lucide="share-2"></i>
+                <span>分享此歌單</span>
+              </button>
+              
+              <!-- 刪除歌單按鈕 -->
+              <button class="btn btn-danger btn-delete-playlist hidden" id="btn-delete-playlist" title="刪除此歌單">
+                <i data-lucide="trash-2"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="table-container">
+            <table class="songs-table">
+              <thead>
+                <tr>
+                  <th width="50">#</th>
+                  <th>標題</th>
+                  <th>歌手</th>
+                  <th>專輯</th>
+                  <th width="100">長度</th>
+                  <th width="120">操作</th>
+                </tr>
+              </thead>
+              <tbody id="songs-list-body">
+                <!-- 動態插入歌曲資料 -->
+                <tr class="empty-row">
+                  <td colspan="6" class="text-center">媒體庫空空如也，請點擊上方上傳歌曲</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- 上傳進度彈窗 (Toast/Modal) -->
+  <div class="upload-modal hidden" id="upload-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>正在上傳歌曲...</h3>
+        <button class="close-btn" id="btn-close-upload-modal">&times;</button>
+      </div>
+      <div class="upload-progress-list" id="upload-progress-list">
+        <!-- 上傳進度條 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 加入歌單彈出選單 -->
+  <div class="playlist-dropdown-menu hidden" id="playlist-dropdown-menu">
+    <!-- 動態產生可加入的歌單列表 -->
+  </div>
+
+  <!-- 編輯歌詞彈窗 -->
+  <div class="upload-modal hidden" id="lyrics-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>編輯歌詞 (支援 LRC 時間軸格式)</h3>
+        <button class="close-btn" id="btn-close-lyrics-modal">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 8px 0;">
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4;">
+          請輸入一般文字歌詞，或輸入 LRC 時間軸格式（例如 <code>[00:12.30]歌詞內容</code>）來實現隨音樂時間軸自動滾動！
+        </p>
+        <textarea id="textarea-lyrics" rows="12" style="width: 100%; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-glass-active); border-radius: 8px; color: #fff; padding: 12px; font-family: monospace; font-size: 0.85rem; outline: none; resize: vertical; line-height: 1.5;"></textarea>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px;">
+        <button class="btn btn-secondary btn-sm" id="btn-cancel-lyrics">取消</button>
+        <button class="btn btn-primary btn-sm" id="btn-save-lyrics">儲存歌詞</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通知提示元件 (Toast) -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- 初始化 Lucide 圖標 -->
+  <script>
+    lucide.createIcons();
+  </script>
+  <!-- Main Logic -->
+  <script src="app.js"></script>
+</body>
+</html>
