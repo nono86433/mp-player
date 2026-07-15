@@ -1,0 +1,17 @@
+{
+  "name": "mp-player",
+  "version": "1.0.0",
+  "description": "A beautiful MP3/MP4 music player with cloud storage simulation and playlist sharing.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.1",
+    "music-metadata": "^7.13.4"
+  }
+}
