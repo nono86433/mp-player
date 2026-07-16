@@ -107,7 +107,6 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // 歌單重命名與手機上傳 UI 元素
   const btnEditPlaylist = document.getElementById('btn-edit-playlist');
-  const btnMobileSidebarUpload = document.getElementById('btn-mobile-sidebar-upload');
   const btnFullscreen = document.getElementById('btn-fullscreen');
 
   // 歌詞相關 UI 元素
@@ -917,12 +916,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 手機版側邊欄上傳按鈕點擊事件
-  if (btnMobileSidebarUpload) {
-    btnMobileSidebarUpload.addEventListener('click', () => {
-      fileInput.click();
-    });
-  }
 
   // === 下拉選單 (加入歌單) 邏輯 ===
 

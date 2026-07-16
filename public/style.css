@@ -1786,14 +1786,3 @@ body {
   }
 }
 
-/* 手機版側邊欄上傳按鈕 (桌機預設隱藏) */
-.mobile-sidebar-upload-wrapper {
-  display: none;
-}
-
-@media (max-width: 768px) {
-  .mobile-sidebar-upload-wrapper {
-    display: block !important;
-  }
-}
-
