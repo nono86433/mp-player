@@ -11,6 +11,11 @@
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <!-- Main Stylesheet -->
+  <!-- PWA Standalone Mobile Support -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0f0f1e">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -105,6 +110,12 @@
           <i data-lucide="search"></i>
           <input type="text" id="search-input" placeholder="搜尋歌曲或歌手...">
         </div>
+        
+        <!-- 全螢幕切換按鈕 -->
+        <button class="btn-fullscreen-toggle" id="btn-fullscreen" title="切換全螢幕" style="background: none; border: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; margin-left: 10px; padding: 6px;">
+          <i data-lucide="maximize" style="width: 20px; height: 20px;"></i>
+        </button>
+
         <div class="nav-actions">
           <button class="btn btn-primary" id="btn-upload-trigger">
             <i data-lucide="upload"></i>

@@ -108,6 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 歌單重命名與手機上傳 UI 元素
   const btnEditPlaylist = document.getElementById('btn-edit-playlist');
   const btnMobileSidebarUpload = document.getElementById('btn-mobile-sidebar-upload');
+  const btnFullscreen = document.getElementById('btn-fullscreen');
 
   // 歌詞相關 UI 元素
   const btnToggleLyrics = document.getElementById('btn-toggle-lyrics');
@@ -1795,6 +1796,64 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
   });
+
+  // === 全螢幕與 PWA 支援 ===
+
+  function updateFullscreenIcon(isFullscreen) {
+    if (!btnFullscreen) return;
+    if (isFullscreen) {
+      btnFullscreen.innerHTML = '<i data-lucide="minimize" style="width: 20px; height: 20px;"></i>';
+    } else {
+      btnFullscreen.innerHTML = '<i data-lucide="maximize" style="width: 20px; height: 20px;"></i>';
+    }
+    refreshIcons();
+  }
+
+  if (btnFullscreen) {
+    btnFullscreen.addEventListener('click', () => {
+      const docEl = document.documentElement;
+      const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
+      
+      if (!isFullscreen) {
+        const reqFS = docEl.requestFullscreen || docEl.webkitRequestFullscreen;
+        if (reqFS) {
+          reqFS.call(docEl)
+            .then(() => {
+              updateFullscreenIcon(true);
+            })
+            .catch(err => {
+              showToast('無法進入全螢幕: ' + err.message, 'error');
+            });
+        } else {
+          showToast('您的瀏覽器不支援全螢幕 API，請使用瀏覽器選單並選擇「加入主畫面」後開啟，即可享用獨立 App 全螢幕體驗！', 'warning');
+        }
+      } else {
+        const exitFS = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exitFS) {
+          exitFS.call(document)
+            .then(() => {
+              updateFullscreenIcon(false);
+            });
+        }
+      }
+    });
+  }
+
+  document.addEventListener('fullscreenchange', () => {
+    updateFullscreenIcon(!!document.fullscreenElement);
+  });
+  document.addEventListener('webkitfullscreenchange', () => {
+    updateFullscreenIcon(!!document.webkitFullscreenElement);
+  });
+
+  // 註冊 PWA Service Worker
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('PWA Service Worker 註冊成功:', reg.scope))
+        .catch(err => console.log('PWA Service Worker 註冊失敗:', err));
+    });
+  }
 
   // === 初始化執行入口 ===
   (async function init() {
