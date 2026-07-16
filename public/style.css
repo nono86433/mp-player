@@ -1453,3 +1453,255 @@ body {
   text-align: left;
 }
 
+/* ==========================================================================
+   手機版控制列與導覽列預設隱藏 (桌機版)
+   ========================================================================== */
+.mobile-mini-player, .mobile-tab-bar {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  /* 手機版容器與版面配置 */
+  body {
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+  }
+  
+  .app-container {
+    padding: 0;
+    gap: 0;
+    height: 100vh;
+    display: block;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  /* 預設隱藏三個主要區塊 */
+  .sidebar, .player-panel, .songs-list-panel {
+    display: none !important;
+    width: 100% !important;
+    height: calc(100vh - 65px) !important; /* 扣除底部導覽列 */
+    position: absolute;
+    top: 0;
+    left: 0;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 16px !important;
+    overflow-y: auto;
+  }
+
+  /* 顯示活動的 Tab 畫面 */
+  .app-container.tab-library .songs-list-panel {
+    display: flex !important;
+  }
+  
+  .app-container.tab-player .player-panel {
+    display: flex !important;
+  }
+  
+  .app-container.tab-playlists .sidebar {
+    display: flex !important;
+  }
+
+  /* 側邊欄調整 */
+  .sidebar {
+    gap: 20px;
+    background: rgba(18, 18, 38, 0.95);
+    z-index: 10;
+  }
+
+  .sidebar-menu {
+    flex-grow: 1;
+    overflow-y: auto;
+  }
+  
+  /* 主要內容區調優 */
+  .main-content {
+    height: 100%;
+    gap: 0;
+  }
+  
+  /* 手機版頂部導覽列調整 */
+  .top-nav {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    padding: 0 16px;
+    height: 56px;
+    background: rgba(18, 18, 38, 0.6);
+  }
+  
+  .search-bar {
+    width: 100% !important;
+  }
+  
+  .nav-actions {
+    display: none !important; /* 手機版隱藏右上角上傳按鈕 */
+  }
+
+  .content-grid {
+    display: block;
+    height: calc(100% - 56px);
+  }
+  
+  /* 歌曲清單面板 RWD */
+  .songs-list-panel {
+    background: var(--bg-primary);
+    flex-direction: column;
+    z-index: 5;
+    padding-bottom: 70px !important; /* 避開 mini-player */
+  }
+  
+  .table-container {
+    overflow-x: auto;
+  }
+  
+  .songs-table th:nth-child(3), .songs-table td:nth-child(3), /* 隱藏歌手 (僅留標題與操作) */
+  .songs-table th:nth-child(4), .songs-table td:nth-child(4) { /* 隱藏專輯 */
+    display: none;
+  }
+
+  /* 播放器面板 RWD */
+  .player-panel {
+    background: var(--bg-primary);
+    z-index: 8;
+    justify-content: center;
+    padding-bottom: 70px !important; /* 避開 mini-player */
+  }
+  
+  .player-card {
+    border: none;
+    background: none;
+    backdrop-filter: none;
+    box-shadow: none;
+    padding: 12px;
+  }
+  
+  .visualizer-container {
+    max-width: 320px;
+    margin: 0 auto;
+  }
+  
+  /* 手機版底部 Tab Bar 樣式 */
+  .mobile-tab-bar {
+    display: flex !important;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100vw;
+    height: 65px;
+    background: rgba(15, 15, 30, 0.95);
+    backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border-glass);
+    justify-content: space-around;
+    align-items: center;
+    z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom); /* 支援 iPhone 底部安全區域 */
+  }
+  
+  .tab-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition-fast);
+    padding: 6px 12px;
+  }
+  
+  .tab-item i {
+    width: 20px;
+    height: 20px;
+  }
+  
+  .tab-item.active {
+    color: var(--accent-light);
+  }
+
+  /* 手機版底部浮動 Mini Player 樣式 */
+  .mobile-mini-player {
+    display: flex !important;
+    position: fixed;
+    bottom: 65px; /* 剛好在 Tab Bar 上方 */
+    left: 12px;
+    right: 12px;
+    height: 56px;
+    background: rgba(28, 28, 50, 0.85);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-glass-active);
+    border-radius: 12px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    z-index: 99;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    animation: slide-up-mini 0.3s ease-out;
+  }
+  
+  @keyframes slide-up-mini {
+    from {
+      transform: translateY(20px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  .mini-info {
+    flex-grow: 1;
+    min-width: 0; /* 防止溢出 */
+    cursor: pointer;
+  }
+  
+  .mini-info h4 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  .mini-info p {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  .mini-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  
+  .mini-btn {
+    background: none;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .mini-btn i {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* 上傳彈窗 RWD */
+  .upload-modal .modal-content {
+    width: 90vw !important;
+    max-height: 80vh;
+  }
+}
+

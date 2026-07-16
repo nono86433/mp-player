@@ -90,6 +90,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const storageUsed = document.getElementById('storage-used');
   const storageTotal = document.getElementById('storage-total');
 
+  // 手機版 UI 元素
+  const mobileMiniPlayer = document.getElementById('mobile-mini-player');
+  const miniTitle = document.getElementById('mini-title');
+  const miniArtist = document.getElementById('mini-artist');
+  const btnMiniPlayPause = document.getElementById('btn-mini-play-pause');
+  const btnMiniNext = document.getElementById('btn-mini-next');
+  const mobileTabBar = document.getElementById('mobile-tab-bar');
+  const appContainer = document.querySelector('.app-container');
+
   // 歌詞相關 UI 元素
   const btnToggleLyrics = document.getElementById('btn-toggle-lyrics');
   const lyricsWrapper = document.getElementById('lyrics-wrapper');
@@ -407,6 +416,8 @@ document.addEventListener('DOMContentLoaded', () => {
     isPlaying = true;
     updatePlayPauseUI();
     highlightPlayingRow();
+    updateMediaSession(song);
+    updateMiniPlayerUI();
   }
 
   // 切換 播放/暫停
@@ -437,6 +448,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     updatePlayPauseUI();
     highlightPlayingRow();
+    updateMiniPlayerUI();
   }
 
   // 上一首
@@ -495,6 +507,9 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       btnPlayPause.innerHTML = '<i data-lucide="play"></i>';
       albumCover.classList.remove('playing');
+    }
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
     }
     refreshIcons();
   }
@@ -905,6 +920,40 @@ document.addEventListener('DOMContentLoaded', () => {
     }, false);
   });
 
+  // 遞迴讀取 DataTransferEntry 裡的所有檔案
+  async function traverseFileTree(item) {
+    return new Promise((resolve) => {
+      if (item.isFile) {
+        item.file((file) => {
+          resolve([file]);
+        });
+      } else if (item.isDirectory) {
+        const dirReader = item.createReader();
+        const allFiles = [];
+        
+        // 遞迴讀取 entries，需處理 readEntries 可能分批回傳的情況
+        const readEntries = () => {
+          dirReader.readEntries(async (entries) => {
+            if (entries.length === 0) {
+              resolve(allFiles);
+            } else {
+              const filePromises = entries.map(entry => traverseFileTree(entry));
+              const results = await Promise.all(filePromises);
+              allFiles.push(...results.flat());
+              readEntries(); // 繼續讀取下一批
+            }
+          }, (err) => {
+            console.error('讀取目錄 entries 失敗:', err);
+            resolve(allFiles);
+          });
+        };
+        readEntries();
+      } else {
+        resolve([]);
+      }
+    });
+  }
+
   ['dragleave', 'drop'].forEach(eventName => {
     dropzone.addEventListener(eventName, (e) => {
       e.preventDefault();
@@ -912,10 +961,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }, false);
   });
 
-  dropzone.addEventListener('drop', (e) => {
-    const dt = e.dataTransfer;
-    const files = dt.files;
-    handleFilesSelected(files);
+  dropzone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    
+    const items = e.dataTransfer.items;
+    if (items && items.length > 0) {
+      const filePromises = [];
+      for (let i = 0; i < items.length; i++) {
+        // webkitGetAsEntry 是現代瀏覽器都支援的 API，可用於讀取拖曳的資料夾
+        const item = items[i].webkitGetAsEntry();
+        if (item) {
+          filePromises.push(traverseFileTree(item));
+        }
+      }
+      const results = await Promise.all(filePromises);
+      const allFiles = results.flat();
+      handleFilesSelected(allFiles);
+    } else {
+      const files = e.dataTransfer.files;
+      handleFilesSelected(files);
+    }
   });
 
   dropzone.addEventListener('click', () => {
@@ -1394,11 +1460,159 @@ document.addEventListener('DOMContentLoaded', () => {
       .replace(/'/g, '&#039;');
   }
 
+  // 更新手機鎖定畫面媒體資訊 (Media Session API)
+  function updateMediaSession(song) {
+    if ('mediaSession' in navigator) {
+      const coverUrl = song.hasCover && song.coverUrl 
+        ? window.location.origin + song.coverUrl 
+        : window.location.origin + '/uploads/covers/default.png';
+        
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: song.title,
+        artist: song.artist,
+        album: song.album || 'Nebula Stream',
+        artwork: [
+          { src: coverUrl, sizes: '96x96',   type: 'image/png' },
+          { src: coverUrl, sizes: '128x128', type: 'image/png' },
+          { src: coverUrl, sizes: '192x192', type: 'image/png' },
+          { src: coverUrl, sizes: '256x256', type: 'image/png' },
+          { src: coverUrl, sizes: '384x384', type: 'image/png' },
+          { src: coverUrl, sizes: '512x512', type: 'image/png' },
+        ]
+      });
+
+      // 註冊鎖定畫面按鍵控制
+      try {
+        navigator.mediaSession.setActionHandler('play', () => { togglePlay(); });
+        navigator.mediaSession.setActionHandler('pause', () => { togglePlay(); });
+        navigator.mediaSession.setActionHandler('previoustrack', () => { prevSong(); });
+        navigator.mediaSession.setActionHandler('nexttrack', () => { nextSong(false); });
+      } catch (err) {
+        console.warn('Media Session Action Handler 註冊失敗:', err.message);
+      }
+    }
+  }
+
+  // 更新手機版底部 Mini Player 內容
+  function updateMiniPlayerUI() {
+    if (!currentSong) {
+      mobileMiniPlayer.classList.add('hidden');
+      return;
+    }
+    
+    // 更新文字
+    miniTitle.textContent = currentSong.title;
+    miniArtist.textContent = currentSong.artist;
+    
+    // 依據目前活動 Tab 決定是否顯示 mini-player (只有當不是在播放中 tab 時才顯示)
+    const activeTab = mobileTabBar.querySelector('.tab-item.active')?.getAttribute('data-tab');
+    if (activeTab === 'player') {
+      mobileMiniPlayer.classList.add('hidden');
+    } else {
+      mobileMiniPlayer.classList.remove('hidden');
+    }
+
+    // 更新播放按鈕圖示
+    if (isPlaying) {
+      btnMiniPlayPause.innerHTML = '<i data-lucide="pause"></i>';
+    } else {
+      btnMiniPlayPause.innerHTML = '<i data-lucide="play"></i>';
+    }
+    refreshIcons();
+  }
+
+  // 手機版 Tab 切換與 Mini Player 點擊綁定
+  function initMobileTabs() {
+    // 預設加上 tab-library 樣式
+    appContainer.classList.add('tab-library');
+    
+    mobileTabBar.querySelectorAll('.tab-item').forEach(tab => {
+      tab.addEventListener('click', () => {
+        // 切換 active 樣式
+        mobileTabBar.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
+        tab.classList.add('active');
+        
+        const targetTab = tab.getAttribute('data-tab');
+        
+        // 切換容器樣式
+        appContainer.classList.remove('tab-library', 'tab-player', 'tab-playlists');
+        appContainer.classList.add(`tab-${targetTab}`);
+        
+        // 更新 mini-player 隱藏/顯示
+        updateMiniPlayerUI();
+      });
+    });
+
+    // 點擊 mini-player 資訊處直接跳轉到播放中 tab
+    mobileMiniPlayer.querySelector('.mini-info').addEventListener('click', () => {
+      const playerTab = mobileTabBar.querySelector('[data-tab="player"]');
+      if (playerTab) playerTab.click();
+    });
+
+    // 迷你播放按鈕事件
+    btnMiniPlayPause.addEventListener('click', (e) => {
+      e.stopPropagation();
+      togglePlay();
+    });
+
+    btnMiniNext.addEventListener('click', (e) => {
+      e.stopPropagation();
+      nextSong(false);
+    });
+  }
+
+  // 手機背景播放切換機制 (當切到背景/關屏，將 video 換成 audio 播放)
+  document.addEventListener('visibilitychange', () => {
+    if (!currentSong || !currentSong.isVideo) return;
+    
+    if (document.hidden) {
+      if (isPlaying) {
+        const time = videoPlayer.currentTime;
+        videoPlayer.pause();
+        
+        audioPlayer.src = currentSong.fileUrl;
+        audioPlayer.currentTime = time;
+        audioPlayer.volume = isMuted ? 0 : currentVolume;
+        audioPlayer.playbackRate = parseFloat(selectSpeed.value);
+        
+        audioPlayer.play()
+          .then(() => {
+            isPlaying = true;
+            updatePlayPauseUI();
+            updateMiniPlayerUI();
+          })
+          .catch(err => console.log('音軌背景過渡失敗:', err.message));
+      }
+    } else {
+      // 回到前台，如果 audio 正在播影片的音軌，無縫還原回 video
+      if (isPlaying && audioPlayer.src !== '') {
+        const time = audioPlayer.currentTime;
+        audioPlayer.pause();
+        audioPlayer.src = '';
+        
+        videoContainer.classList.remove('hidden');
+        videoPlayer.src = currentSong.fileUrl;
+        videoPlayer.currentTime = time;
+        videoPlayer.volume = isMuted ? 0 : currentVolume;
+        videoPlayer.playbackRate = parseFloat(selectSpeed.value);
+        
+        videoPlayer.play()
+          .then(() => {
+            isPlaying = true;
+            updatePlayPauseUI();
+            updateMiniPlayerUI();
+          })
+          .catch(err => console.log('畫面還原失敗:', err.message));
+      }
+    }
+  });
+
   // === 初始化執行入口 ===
   (async function init() {
     await fetchSongs();
     await fetchPlaylists();
     await fetchStorageStatus();
+    initMobileTabs(); // 初始化手機版導覽列與事件
     await checkSharedPlaylist();
   })();
 });
