@@ -1786,3 +1786,14 @@ body {
   }
 }
 
+/* 全螢幕切換按鈕 (桌機預設隱藏) */
+#btn-fullscreen {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  #btn-fullscreen {
+    display: flex !important;
+  }
+}
+
