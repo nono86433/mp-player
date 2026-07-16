@@ -348,6 +348,28 @@ app.post('/api/upload', upload.single('music'), async (req, res) => {
 
   const db = readDb();
   db.songs.push(newSong);
+
+  // 如果有帶資料夾名稱（playlistName），自動建立該歌單並關聯這首歌
+  const playlistName = req.body.playlistName;
+  if (playlistName && playlistName.trim() !== '') {
+    const plName = playlistName.trim();
+    let playlist = db.playlists.find(p => p.name.toLowerCase() === plName.toLowerCase());
+    
+    if (!playlist) {
+      playlist = {
+        id: uuidv4(),
+        name: plName,
+        songIds: [],
+        createTime: new Date().toISOString()
+      };
+      db.playlists.push(playlist);
+    }
+    
+    if (!playlist.songIds.includes(newSong.id)) {
+      playlist.songIds.push(newSong.id);
+    }
+  }
+
   writeDb(db);
 
   res.json({ success: true, song: newSong });
@@ -514,6 +536,59 @@ app.delete('/api/songs/:id', (req, res) => {
   writeDb(db);
   
   res.json({ success: true, message: '歌曲已成功刪除' });
+});
+
+// 9.5. 批量刪除歌曲
+app.post('/api/songs/batch-delete', (req, res) => {
+  const { songIds } = req.body;
+  if (!songIds || !Array.isArray(songIds) || songIds.length === 0) {
+    return res.status(400).json({ error: '請提供要刪除的歌曲 ID 清單' });
+  }
+
+  const db = readDb();
+  let deletedCount = 0;
+
+  songIds.forEach(id => {
+    const songIndex = db.songs.findIndex(s => s.id === id);
+    if (songIndex !== -1) {
+      const song = db.songs[songIndex];
+
+      // 1. 刪除媒體檔案
+      const filePath = path.join(UPLOADS_DIR, song.filename);
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (err) {
+        console.error(`刪除媒體檔案失敗 ${song.filename}:`, err.message);
+      }
+
+      // 2. 刪除封面檔案 (若有)
+      if (song.hasCover && song.coverUrl) {
+        const coverFileName = path.basename(song.coverUrl);
+        const coverPath = path.join(COVERS_DIR, coverFileName);
+        try {
+          if (fs.existsSync(coverPath)) {
+            fs.unlinkSync(coverPath);
+          }
+        } catch (err) {
+          console.error('刪除封面檔案失敗:', err.message);
+        }
+      }
+
+      // 3. 從所有歌單中移除該歌曲 ID
+      db.playlists.forEach(pl => {
+        pl.songIds = pl.songIds.filter(sid => sid !== id);
+      });
+
+      // 4. 從 songs 中移除該歌曲
+      db.songs.splice(songIndex, 1);
+      deletedCount++;
+    }
+  });
+
+  writeDb(db);
+  res.json({ success: true, message: `成功刪除 ${deletedCount} 首歌曲！` });
 });
 
 // 10. 更新歌曲歌詞

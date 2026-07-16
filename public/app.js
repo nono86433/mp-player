@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let isPlaying = false;
   let isShuffle = false;
   let repeatMode = 'off'; // 'off' | 'all' | 'one'
+  let selectedSongIds = []; // 儲存已勾選的歌曲 ID
   
   // Web Audio Visualizer 變數
   let audioCtx = null;
@@ -98,6 +99,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnMiniNext = document.getElementById('btn-mini-next');
   const mobileTabBar = document.getElementById('mobile-tab-bar');
   const appContainer = document.querySelector('.app-container');
+
+  // 批量刪除 UI 元素
+  const chkSelectAll = document.getElementById('chk-select-all');
+  const btnBatchDelete = document.getElementById('btn-batch-delete');
+  const selectedCountSpan = document.getElementById('selected-count');
 
   // 歌詞相關 UI 元素
   const btnToggleLyrics = document.getElementById('btn-toggle-lyrics');
@@ -266,13 +272,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 渲染右側歌曲表格
   function renderSongsList(songsToShow) {
+    // 重設勾選狀態
+    selectedSongIds = [];
+    if (chkSelectAll) chkSelectAll.checked = false;
+    updateBatchDeleteUI();
+
     songsCount.textContent = songsToShow.length;
     songsListBody.innerHTML = '';
 
     if (songsToShow.length === 0) {
       songsListBody.innerHTML = `
         <tr class="empty-row">
-          <td colspan="6" class="text-center">此歌單內尚無任何音樂/影片，請將歌曲加入或上傳檔案</td>
+          <td colspan="7" class="text-center">此歌單內尚無任何音樂/影片，請將歌曲加入或上傳檔案</td>
         </tr>
       `;
       return;
@@ -290,6 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const mediaIcon = song.isVideo ? 'video' : 'music';
       
       tr.innerHTML = `
+        <td><input type="checkbox" class="song-checkbox" data-song-id="${song.id}"></td>
         <td>${idx + 1}</td>
         <td>
           <div style="display: flex; align-items: center; gap: 8px;">
@@ -314,6 +326,22 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
         </td>
       `.trim();
+
+      // 複選框變更事件
+      const checkbox = tr.querySelector('.song-checkbox');
+      if (checkbox) {
+        checkbox.addEventListener('change', (e) => {
+          const songId = song.id;
+          if (e.target.checked) {
+            if (!selectedSongIds.includes(songId)) {
+              selectedSongIds.push(songId);
+            }
+          } else {
+            selectedSongIds = selectedSongIds.filter(id => id !== songId);
+          }
+          updateBatchDeleteUI();
+        });
+      }
 
       // 點擊整列或播放按鈕
       const playBtn = tr.querySelector('.row-play-btn');
@@ -739,6 +767,110 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // 更新批量刪除按鈕與計數 UI
+  function updateBatchDeleteUI() {
+    if (!btnBatchDelete || !selectedCountSpan) return;
+    
+    const count = selectedSongIds.length;
+    selectedCountSpan.textContent = count;
+    
+    if (count > 0) {
+      btnBatchDelete.classList.remove('hidden');
+    } else {
+      btnBatchDelete.classList.add('hidden');
+    }
+    
+    // 更新表頭「全選」核取方塊的勾選狀態
+    if (chkSelectAll) {
+      const allRowCheckboxes = songsListBody.querySelectorAll('.song-checkbox');
+      if (allRowCheckboxes.length > 0) {
+        chkSelectAll.checked = Array.from(allRowCheckboxes).every(cb => cb.checked);
+      } else {
+        chkSelectAll.checked = false;
+      }
+    }
+  }
+
+  // 全選/取消全選事件監聽
+  if (chkSelectAll) {
+    chkSelectAll.addEventListener('change', (e) => {
+      const checked = e.target.checked;
+      const allRowCheckboxes = songsListBody.querySelectorAll('.song-checkbox');
+      
+      selectedSongIds = [];
+      allRowCheckboxes.forEach(cb => {
+        cb.checked = checked;
+        const songId = cb.getAttribute('data-song-id');
+        if (checked && songId) {
+          selectedSongIds.push(songId);
+        }
+      });
+      
+      updateBatchDeleteUI();
+    });
+  }
+
+  // 批量刪除按鈕點擊事件監聽
+  if (btnBatchDelete) {
+    btnBatchDelete.addEventListener('click', async () => {
+      const count = selectedSongIds.length;
+      if (count === 0) return;
+      
+      if (!confirm(`確定要將勾選的 ${count} 首歌曲/影片從伺服器永久刪除嗎？\n這會將它們從所有歌單中移出，且無法復原。`)) {
+        return;
+      }
+      
+      try {
+        const res = await fetch('/api/songs/batch-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ songIds: selectedSongIds })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          showToast(data.message || `已成功批量刪除 ${count} 首歌曲`);
+          
+          // 如果刪除的歌曲中包含目前正在播放的，則停止播放
+          if (currentSong && selectedSongIds.includes(currentSong.id)) {
+            audioPlayer.pause();
+            videoPlayer.pause();
+            currentSong = null;
+            isPlaying = false;
+            updatePlayPauseUI();
+            updateMiniPlayerUI();
+            currentTitle.textContent = '未播放歌曲';
+            currentArtist.textContent = '請從清單選擇歌曲或上傳新歌';
+            coverImg.classList.add('hidden');
+            coverIconDefault.classList.remove('hidden');
+            videoContainer.classList.add('hidden');
+            lyricsContainer.innerHTML = '';
+          }
+          
+          // 重置勾選狀態
+          selectedSongIds = [];
+          updateBatchDeleteUI();
+          
+          // 重新整理資料庫與列表
+          await fetchSongs();
+          await fetchPlaylists();
+          await fetchStorageStatus();
+          
+          if (currentPlaylist) {
+            await fetchPlaylistDetails(currentPlaylist.id);
+          } else {
+            renderSongsList(songs);
+            playQueue = [...songs];
+          }
+        } else {
+          showToast(data.error || '批量刪除失敗', 'error');
+        }
+      } catch (err) {
+        showToast('批量刪除發生異常，請檢查網路連線', 'error');
+      }
+    });
+  }
+
   // 側邊欄「所有歌曲」按鈕
   btnAllSongs.addEventListener('click', loadAllSongsView);
 
@@ -920,11 +1052,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }, false);
   });
 
-  // 遞迴讀取 DataTransferEntry 裡的所有檔案
-  async function traverseFileTree(item) {
+  // 遞迴讀取 DataTransferEntry 裡的所有檔案，並記下所屬子資料夾路徑以自動轉為歌單
+  async function traverseFileTree(item, path = "") {
     return new Promise((resolve) => {
       if (item.isFile) {
         item.file((file) => {
+          const folders = path.split('/').filter(Boolean);
+          // 如果有層級路徑，把最接近該檔案的父資料夾名稱作為歌單名稱
+          if (folders.length > 0) {
+            file.playlistName = folders[folders.length - 1];
+          }
           resolve([file]);
         });
       } else if (item.isDirectory) {
@@ -937,7 +1074,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (entries.length === 0) {
               resolve(allFiles);
             } else {
-              const filePromises = entries.map(entry => traverseFileTree(entry));
+              const filePromises = entries.map(entry => traverseFileTree(entry, path + item.name + "/"));
               const results = await Promise.all(filePromises);
               allFiles.push(...results.flat());
               readEntries(); // 繼續讀取下一批
@@ -1036,6 +1173,9 @@ document.addEventListener('DOMContentLoaded', () => {
       // 執行 AJAX 上傳
       const formData = new FormData();
       formData.append('music', file);
+      if (file.playlistName) {
+        formData.append('playlistName', file.playlistName);
+      }
 
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/upload', true);

@@ -223,6 +223,12 @@
             </div>
             
             <div class="playlist-actions">
+              <!-- 批量刪除按鈕 (勾選時顯示) -->
+              <button class="btn btn-danger btn-sm hidden" id="btn-batch-delete" title="批量刪除選取歌曲" style="border-radius: 50px; padding: 6px 14px;">
+                <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                <span>批量刪除 (<span id="selected-count">0</span>)</span>
+              </button>
+
               <!-- 分享歌單按鈕 (當前非「所有歌曲」時顯示) -->
               <button class="btn btn-secondary btn-share hidden" id="btn-share-playlist">
                 <i data-lucide="share-2"></i>
@@ -240,6 +246,7 @@
             <table class="songs-table">
               <thead>
                 <tr>
+                  <th width="40"><input type="checkbox" id="chk-select-all" title="全選/取消全選"></th>
                   <th width="50">#</th>
                   <th>標題</th>
                   <th>歌手</th>
@@ -251,7 +258,7 @@
               <tbody id="songs-list-body">
                 <!-- 動態插入歌曲資料 -->
                 <tr class="empty-row">
-                  <td colspan="6" class="text-center">媒體庫空空如也，請點擊上方上傳歌曲</td>
+                  <td colspan="7" class="text-center">媒體庫空空如也，請點擊上方上傳歌曲</td>
                 </tr>
               </tbody>
             </table>

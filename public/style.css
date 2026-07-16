@@ -914,6 +914,17 @@ body {
   transition: var(--transition-fast);
 }
 
+.songs-table input[type="checkbox"] {
+  accent-color: var(--accent-light);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  border: 1px solid var(--border-glass-active);
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
 /* 歌曲列 Hover 效果 */
 .songs-table tbody tr:not(.empty-row):hover {
   background: rgba(255, 255, 255, 0.04);
