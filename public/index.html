@@ -63,6 +63,22 @@
           </ul>
         </div>
       </div>
+      <!-- 儲存空間狀態 -->
+      <div class="storage-status-card" id="storage-status-card">
+        <div class="storage-info">
+          <div class="storage-title">
+            <i data-lucide="hard-drive"></i>
+            <span>雲端模擬儲存空間</span>
+          </div>
+          <span class="storage-ratio" id="storage-ratio">0%</span>
+        </div>
+        <div class="storage-track">
+          <div class="storage-fill" id="storage-fill" style="width: 0%;"></div>
+        </div>
+        <div class="storage-detail">
+          已使用 <span id="storage-used">0 MB</span> / 共 <span id="storage-total">1.00 GB</span>
+        </div>
+      </div>
 
       <!-- 拖曳上傳區 -->
       <div class="upload-dropzone" id="dropzone">

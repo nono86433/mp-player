@@ -1390,3 +1390,66 @@ body {
   background: rgba(239, 68, 68, 0.1) !important;
   transform: scale(1.1);
 }
+
+/* ==========================================================================
+   儲存空間狀態卡片 (Storage Status Card)
+   ========================================================================== */
+.storage-status-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-glass);
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.storage-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.storage-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.storage-title i {
+  width: 14px;
+  height: 14px;
+  color: var(--accent-light);
+}
+
+.storage-ratio {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent-light);
+}
+
+.storage-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.storage-fill {
+  height: 100%;
+  background: var(--accent-gradient);
+  border-radius: 10px;
+  transition: width var(--transition-normal);
+}
+
+.storage-detail {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-align: left;
+}
+

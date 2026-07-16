@@ -5,6 +5,10 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import * as musicMetadata from 'music-metadata';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execPromise = promisify(exec);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -157,6 +161,43 @@ function initDb() {
   }
 }
 initDb();
+function getDirSize(dirPath) {
+  let size = 0;
+  try {
+    if (!fs.existsSync(dirPath)) return 0;
+    const stat = fs.statSync(dirPath);
+    if (!stat.isDirectory()) return stat.size;
+
+    const files = fs.readdirSync(dirPath);
+    for (let i = 0; i < files.length; i++) {
+      const filePath = path.join(dirPath, files[i]);
+      size += getDirSize(filePath);
+    }
+  } catch (err) {
+    console.error(`無法讀取目錄/檔案大小 ${dirPath}:`, err.message);
+  }
+  return size;
+}
+
+async function getDiskSpace() {
+  try {
+    const drive = path.parse(__dirname).root.substring(0, 2); // 例如 "C:"
+    const { stdout } = await execPromise(`powershell -Command "Get-Volume -DriveLetter ${drive[0]} | Select-Object Size, SizeRemaining | ConvertTo-Json"`);
+    const disk = JSON.parse(stdout);
+    return {
+      total: disk.Size, // bytes
+      free: disk.SizeRemaining // bytes
+    };
+  } catch (err) {
+    console.error('取得硬碟空間失敗，使用 1GB 模擬容量為備用方案:', err.message);
+    const usedSpace = getDirSize(UPLOADS_DIR);
+    return {
+      total: 1024 * 1024 * 1024,
+      free: Math.max(0, 1024 * 1024 * 1024 - usedSpace)
+    };
+  }
+}
+
 
 function readDb() {
   try {
@@ -168,7 +209,9 @@ function readDb() {
 }
 
 function writeDb(data) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  const tmpPath = `${DB_FILE}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+  fs.renameSync(tmpPath, DB_FILE);
 }
 
 // Multer 上傳設定
@@ -215,6 +258,27 @@ app.get('/api/songs', (req, res) => {
   res.json(db.songs);
 });
 
+// 1.5. 取得儲存空間狀態
+app.get('/api/storage-status', async (req, res) => {
+  try {
+    const usedSpace = getDirSize(UPLOADS_DIR);
+    const disk = await getDiskSpace();
+    
+    // 總容量 = 已使用上傳容量 + 硬碟剩餘空間
+    const totalSpace = usedSpace + disk.free;
+    
+    res.json({
+      success: true,
+      usedSpace,
+      totalSpace,
+      remainingSpace: disk.free
+    });
+  } catch (err) {
+    console.error('取得儲存空間狀態失敗:', err);
+    res.status(500).json({ error: '無法取得儲存空間狀態' });
+  }
+});
+
 // 2. 上傳歌曲與解析標籤
 app.post('/api/upload', upload.single('music'), async (req, res) => {
   if (!req.file) {
@@ -223,6 +287,20 @@ app.post('/api/upload', upload.single('music'), async (req, res) => {
 
   const filePath = req.file.path;
   const fileName = req.file.filename;
+
+  // 檢查硬碟剩餘空間是否足夠
+  const disk = await getDiskSpace();
+  if (disk.free < req.file.size) {
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (err) {
+      console.error('刪除超額檔案失敗:', err.message);
+    }
+    return res.status(400).json({ error: '硬碟剩餘空間不足，上傳失敗！' });
+  }
+
   // 修正 Multer 檔名亂碼 (CP1252/ISO-8859-1 轉 UTF-8)
   const originalName = decodeGarbledString(req.file.originalname);
   const fileExt = path.extname(originalName).toLowerCase();

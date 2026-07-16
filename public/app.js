@@ -84,6 +84,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const playlistDropdownMenu = document.getElementById('playlist-dropdown-menu');
   const toastContainer = document.getElementById('toast-container');
 
+  // 儲存容量 UI 元素
+  const storageRatio = document.getElementById('storage-ratio');
+  const storageFill = document.getElementById('storage-fill');
+  const storageUsed = document.getElementById('storage-used');
+  const storageTotal = document.getElementById('storage-total');
+
   // 歌詞相關 UI 元素
   const btnToggleLyrics = document.getElementById('btn-toggle-lyrics');
   const lyricsWrapper = document.getElementById('lyrics-wrapper');
@@ -132,6 +138,49 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) {
       console.error('fetchSongs error:', err);
       showToast('載入歌曲庫失敗: ' + err.message, 'error');
+    }
+  }
+
+  // 載入與更新儲存空間狀態
+  async function fetchStorageStatus() {
+    try {
+      const res = await fetch('/api/storage-status');
+      const data = await res.json();
+      if (data.success) {
+        const usedMB = (data.usedSpace / (1024 * 1024)).toFixed(2);
+        const totalMB = (data.totalSpace / (1024 * 1024)).toFixed(2);
+        
+        let displayTotal = `${totalMB} MB`;
+        if (data.totalSpace >= 1024 * 1024 * 1024) {
+          displayTotal = `${(data.totalSpace / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+        }
+        
+        let displayUsed = `${usedMB} MB`;
+        if (data.usedSpace >= 1024 * 1024 * 1024) {
+          displayUsed = `${(data.usedSpace / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+        }
+
+        const percentage = Math.min(100, ((data.usedSpace / data.totalSpace) * 100)).toFixed(1);
+        
+        storageRatio.textContent = `${percentage}%`;
+        storageFill.style.width = `${percentage}%`;
+        storageUsed.textContent = displayUsed;
+        storageTotal.textContent = displayTotal;
+
+        // 如果容量快滿了 (70% 或 90% 以上)，改變進度條與比例字體顏色為紅色或橘色
+        if (percentage >= 90) {
+          storageRatio.style.color = '#ef4444';
+          storageFill.style.background = 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)';
+        } else if (percentage >= 70) {
+          storageRatio.style.color = '#f97316';
+          storageFill.style.background = 'linear-gradient(135deg, #f97316 0%, #c2410c 100%)';
+        } else {
+          storageRatio.style.color = 'var(--accent-light)';
+          storageFill.style.background = 'var(--accent-gradient)';
+        }
+      }
+    } catch (err) {
+      console.error('取得儲存容量狀態失敗:', err);
     }
   }
 
@@ -901,6 +950,7 @@ document.addEventListener('DOMContentLoaded', () => {
     uploadProgressList.innerHTML = '';
 
     let completedUploads = 0;
+    let successfulUploads = 0;
 
     files.forEach(file => {
       // 建立進度條 UI
@@ -936,6 +986,7 @@ document.addEventListener('DOMContentLoaded', () => {
       xhr.onload = async () => {
         completedUploads++;
         if (xhr.status === 200) {
+          successfulUploads++;
           const res = JSON.parse(xhr.responseText);
           document.getElementById(`pct-${escapeHtml(file.name)}`).textContent = '完成';
           document.getElementById(`pct-${escapeHtml(file.name)}`).style.color = '#10b981';
@@ -947,7 +998,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 當全部檔案上傳完成
         if (completedUploads === files.length) {
-          showToast(`成功上傳了 ${files.length} 首歌曲/影片！`);
+          if (successfulUploads > 0) {
+            const failedCount = files.length - successfulUploads;
+            showToast(`成功上傳了 ${successfulUploads} 首歌曲/影片！${failedCount > 0 ? `(${failedCount} 首失敗)` : ''}`);
+          } else {
+            showToast('所有檔案上傳失敗，請檢查檔案大小 (限制 100MB) 或格式', 'error');
+          }
           setTimeout(() => {
             uploadModal.classList.add('hidden');
           }, 1500);
@@ -955,6 +1011,7 @@ document.addEventListener('DOMContentLoaded', () => {
           // 重新整理資料庫歌曲列表
           await fetchSongs();
           await fetchPlaylists();
+          await fetchStorageStatus();
           
           // 如果當前是在「所有歌曲」視角，重新繪製列表
           if (!currentPlaylist) {
@@ -1277,6 +1334,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         await fetchSongs();
         await fetchPlaylists();
+        await fetchStorageStatus();
         
         if (currentPlaylist) {
           await fetchPlaylistDetails(currentPlaylist.id);
@@ -1340,6 +1398,7 @@ document.addEventListener('DOMContentLoaded', () => {
   (async function init() {
     await fetchSongs();
     await fetchPlaylists();
+    await fetchStorageStatus();
     await checkSharedPlaylist();
   })();
 });
