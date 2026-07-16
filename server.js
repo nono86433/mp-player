@@ -180,16 +180,32 @@ function getDirSize(dirPath) {
 }
 
 async function getDiskSpace() {
+  const isWindows = process.platform === 'win32';
   try {
-    const drive = path.parse(__dirname).root.substring(0, 2); // 例如 "C:"
-    const { stdout } = await execPromise(`powershell -Command "Get-Volume -DriveLetter ${drive[0]} | Select-Object Size, SizeRemaining | ConvertTo-Json"`);
-    const disk = JSON.parse(stdout);
-    return {
-      total: disk.Size, // bytes
-      free: disk.SizeRemaining // bytes
-    };
+    if (isWindows) {
+      const drive = path.parse(__dirname).root.substring(0, 2); // 例如 "C:"
+      const { stdout } = await execPromise(`powershell -Command "Get-Volume -DriveLetter ${drive[0]} | Select-Object Size, SizeRemaining | ConvertTo-Json"`);
+      const disk = JSON.parse(stdout);
+      return {
+        total: disk.Size, // bytes
+        free: disk.SizeRemaining // bytes
+      };
+    } else {
+      // 支援 Linux / macOS 系統 (如 Render, Heroku 等雲端環境)
+      const { stdout } = await execPromise(`df -B1 "${__dirname}"`);
+      const lines = stdout.trim().split('\n');
+      if (lines.length >= 2) {
+        const parts = lines[1].split(/\s+/);
+        if (parts.length >= 4) {
+          const total = parseInt(parts[1], 10);
+          const free = parseInt(parts[3], 10);
+          return { total, free };
+        }
+      }
+      throw new Error('無法解析 df 輸出格式');
+    }
   } catch (err) {
-    console.error('取得硬碟空間失敗，使用 1GB 模擬容量為備用方案:', err.message);
+    console.error('取得實體硬碟空間失敗，改為 1GB 模擬容量為備用方案:', err.message);
     const usedSpace = getDirSize(UPLOADS_DIR);
     return {
       total: 1024 * 1024 * 1024,
