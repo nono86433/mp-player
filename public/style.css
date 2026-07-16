@@ -1569,9 +1569,15 @@ body {
     overflow-x: auto;
   }
   
+  .songs-table th:nth-child(2), .songs-table td:nth-child(2), /* 隱藏數字編號以防空間不夠 */
   .songs-table th:nth-child(4), .songs-table td:nth-child(4), /* 隱藏歌手 */
   .songs-table th:nth-child(5), .songs-table td:nth-child(5) { /* 隱藏專輯 */
-    display: none;
+    display: none !important;
+  }
+
+  .songs-table th, .songs-table td {
+    padding: 10px 8px !important;
+    font-size: 0.8rem !important;
   }
 
   /* 播放器面板 RWD */
@@ -1579,7 +1585,10 @@ body {
     background: var(--bg-primary);
     z-index: 8;
     justify-content: center;
-    padding-bottom: 70px !important; /* 避開 mini-player */
+    padding: 12px !important;
+    padding-bottom: 75px !important; /* 避開 mini-player */
+    height: calc(100vh - 65px) !important;
+    overflow: hidden;
   }
   
   .player-card {
@@ -1587,11 +1596,72 @@ body {
     background: none;
     backdrop-filter: none;
     box-shadow: none;
-    padding: 12px;
+    padding: 8px !important;
+    gap: 8px !important;
+    max-width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  .album-cover {
+    width: 130px !important;
+    height: 130px !important;
+    margin: 8px auto !important;
+  }
+
+  .album-cover img, .album-cover .cover-icon-default {
+    width: 130px !important;
+    height: 130px !important;
+  }
+
+  .song-meta h2 {
+    font-size: 1.25rem !important;
+    margin-bottom: 4px;
+  }
+
+  .song-meta p {
+    font-size: 0.8rem !important;
+  }
+
+  /* 隱藏音量控制以節省高度空間 */
+  .volume-control {
+    display: none !important;
+  }
+
+  .extra-controls {
+    justify-content: center;
+    margin-top: 4px;
+  }
+
+  .controls-container {
+    gap: 12px !important;
+    margin: 8px 0 !important;
+  }
+
+  .control-btn {
+    width: 44px !important;
+    height: 44px !important;
+  }
+
+  .control-btn i {
+    width: 20px !important;
+    height: 20px !important;
+  }
+
+  .control-btn.play-btn {
+    width: 52px !important;
+    height: 52px !important;
+  }
+
+  .control-btn.play-btn i {
+    width: 24px !important;
+    height: 24px !important;
   }
   
   .visualizer-container {
-    max-width: 320px;
+    max-width: 260px;
     margin: 0 auto;
   }
   
@@ -1716,39 +1786,14 @@ body {
   }
 }
 
-/* 手機版浮動上傳按鈕 (桌機預設隱藏) */
-.mobile-fab-upload {
+/* 手機版側邊欄上傳按鈕 (桌機預設隱藏) */
+.mobile-sidebar-upload-wrapper {
   display: none;
 }
 
 @media (max-width: 768px) {
-  .mobile-fab-upload {
-    display: flex;
-    position: fixed;
-    bottom: 135px; /* 位於 mini-player 上方 */
-    right: 20px;
-    width: 56px;
-    height: 56px;
-    background: var(--accent-gradient);
-    border: none;
-    border-radius: 50%;
-    color: #fff;
-    box-shadow: 0 4px 16px rgba(168, 85, 247, 0.4);
-    align-items: center;
-    justify-content: center;
-    z-index: 98;
-    cursor: pointer;
-    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
-  }
-  
-  .mobile-fab-upload:active {
-    transform: scale(0.9);
-    box-shadow: 0 2px 8px rgba(168, 85, 247, 0.3);
-  }
-  
-  .mobile-fab-upload i {
-    width: 24px;
-    height: 24px;
+  .mobile-sidebar-upload-wrapper {
+    display: block !important;
   }
 }
 
