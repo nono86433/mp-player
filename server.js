@@ -501,6 +501,27 @@ app.delete('/api/playlists/:id', (req, res) => {
   res.json({ success: true, message: '歌單已成功刪除' });
 });
 
+// 8.5. 修改歌單名稱
+app.post('/api/playlists/:id/rename', (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: '請提供有效的歌單名稱' });
+  }
+
+  const db = readDb();
+  const playlistIndex = db.playlists.findIndex(p => p.id === id);
+  if (playlistIndex === -1) {
+    return res.status(404).json({ error: '找不到該歌單' });
+  }
+
+  db.playlists[playlistIndex].name = name.trim();
+  writeDb(db);
+
+  res.json({ success: true, playlist: db.playlists[playlistIndex] });
+});
+
 // 9. 刪除歌曲
 app.delete('/api/songs/:id', (req, res) => {
   const { id } = req.params;

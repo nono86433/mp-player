@@ -104,6 +104,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const chkSelectAll = document.getElementById('chk-select-all');
   const btnBatchDelete = document.getElementById('btn-batch-delete');
   const selectedCountSpan = document.getElementById('selected-count');
+  
+  // 歌單重命名與手機上傳 UI 元素
+  const btnEditPlaylist = document.getElementById('btn-edit-playlist');
+  const btnMobileUpload = document.getElementById('btn-mobile-upload');
 
   // 歌詞相關 UI 元素
   const btnToggleLyrics = document.getElementById('btn-toggle-lyrics');
@@ -230,6 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btnSharePlaylist.classList.remove('hidden');
       btnSharePlaylist.querySelector('span').textContent = '分享此歌單';
       btnDeletePlaylist.classList.remove('hidden');
+      btnEditPlaylist.classList.remove('hidden');
     } catch (err) {
       showToast(err.message, 'error');
       loadAllSongsView();
@@ -243,6 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnSharePlaylist.classList.remove('hidden'); // 所有歌曲視角下也顯示分享
     btnSharePlaylist.querySelector('span').textContent = '分享歌曲庫';
     btnDeletePlaylist.classList.add('hidden');
+    btnEditPlaylist.classList.add('hidden');
     document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
     btnAllSongs.classList.add('active');
     renderSongsList(songs);
@@ -873,6 +879,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 側邊欄「所有歌曲」按鈕
   btnAllSongs.addEventListener('click', loadAllSongsView);
+
+  // 修改歌單名稱按鈕點擊事件
+  if (btnEditPlaylist) {
+    btnEditPlaylist.addEventListener('click', async () => {
+      if (!currentPlaylist) return;
+      
+      const newName = prompt('請輸入新的歌單名稱：', currentPlaylist.name);
+      if (newName === null) return; // 使用者按取消
+      
+      const trimmedName = newName.trim();
+      if (!trimmedName) {
+        showToast('歌單名稱不能為空', 'error');
+        return;
+      }
+      if (trimmedName === currentPlaylist.name) return;
+      
+      try {
+        const res = await fetch(`/api/playlists/${currentPlaylist.id}/rename`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: trimmedName })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          showToast(`歌單名稱已成功修改為「${trimmedName}」`);
+          await fetchPlaylists();
+          await fetchPlaylistDetails(currentPlaylist.id);
+        } else {
+          showToast(data.error || '修改歌單名稱失敗', 'error');
+        }
+      } catch (err) {
+        showToast('與伺服器連線失敗，請稍後再試', 'error');
+      }
+    });
+  }
+
+  // 手機版浮動上傳按鈕點擊事件
+  if (btnMobileUpload) {
+    btnMobileUpload.addEventListener('click', () => {
+      fileInput.click();
+    });
+  }
 
   // === 下拉選單 (加入歌單) 邏輯 ===
 

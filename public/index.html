@@ -235,6 +235,11 @@
                 <span>分享此歌單</span>
               </button>
               
+              <!-- 修改歌單名稱按鈕 -->
+              <button class="btn btn-secondary btn-edit-playlist hidden" id="btn-edit-playlist" title="修改歌單名稱" style="padding: 8px 10px; border-radius: 10px;">
+                <i data-lucide="edit-3" style="width: 16px; height: 16px;"></i>
+              </button>
+              
               <!-- 刪除歌單按鈕 -->
               <button class="btn btn-danger btn-delete-playlist hidden" id="btn-delete-playlist" title="刪除此歌單">
                 <i data-lucide="trash-2"></i>
@@ -337,6 +342,11 @@
       <span>我的歌單</span>
     </div>
   </nav>
+
+  <!-- 手機版浮動上傳按鈕 (FAB) -->
+  <button class="mobile-fab-upload" id="btn-mobile-upload" title="上傳音樂/影片">
+    <i data-lucide="upload"></i>
+  </button>
 
   <!-- 通知提示元件 (Toast) -->
   <div class="toast-container" id="toast-container"></div>
