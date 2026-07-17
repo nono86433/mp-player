@@ -5,6 +5,12 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import * as musicMetadata from 'music-metadata';
+import dotenv from 'dotenv';
+import mongoose from 'mongoose';
+import { v2 as cloudinary } from 'cloudinary';
+
+// 載入環境變數
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,11 +18,170 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 初始化目錄與資料庫
-const DB_FILE = path.join(__dirname, 'data', 'db.json');
+// 初始化目錄
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const COVERS_DIR = path.join(UPLOADS_DIR, 'covers');
 
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
+// === MongoDB 設定 ===
+const songSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  filename: String,
+  originalName: String,
+  title: String,
+  artist: String,
+  album: String,
+  duration: Number,
+  isVideo: Boolean,
+  hasCover: Boolean,
+  coverUrl: String,
+  fileUrl: String,
+  cloudinaryPublicId: String,
+  cloudinaryCoverPublicId: String,
+  lyrics: String,
+  fileSize: Number,
+  uploadTime: { type: Date, default: Date.now }
+});
+
+const playlistSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  songIds: [String],
+  createTime: { type: Date, default: Date.now }
+});
+
+const Song = mongoose.model('Song', songSchema);
+const Playlist = mongoose.model('Playlist', playlistSchema);
+
+// 連線至 MongoDB
+const MONGODB_URI = process.env.MONGODB_URI;
+if (MONGODB_URI) {
+  mongoose.connect(MONGODB_URI)
+    .then(async () => {
+      console.log('MongoDB 連線成功！');
+      // 執行本地資料遷移
+      await migrateLocalDbToCloud();
+    })
+    .catch(err => {
+      console.error('MongoDB 連線失敗:', err.message);
+    });
+} else {
+  console.warn('⚠️ 未偵測到 MONGODB_URI 環境變數，請確認是否已在 .env 檔案中設定。伺服器將無法正常運作。');
+}
+
+// === Cloudinary 設定 ===
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+// === 本地資料庫遷移至雲端 ===
+async function migrateLocalDbToCloud() {
+  let localDbPath = path.join(UPLOADS_DIR, 'db.json');
+  if (!fs.existsSync(localDbPath)) {
+    const altPath = path.join(__dirname, 'data', 'db.json');
+    if (fs.existsSync(altPath)) {
+      localDbPath = altPath;
+    } else {
+      return;
+    }
+  }
+
+  try {
+    const songCount = await Song.countDocuments();
+    if (songCount > 0) return; // 雲端已有資料，不進行重複遷移
+
+    console.log('--------------------------------------------------');
+    console.log('偵測到本地 db.json 且雲端資料庫為空，嘗試進行自動遷移...');
+    console.log('這會將您本地的歌曲與封面圖片上傳至 Cloudinary。請耐心等候...');
+    console.log('--------------------------------------------------');
+
+    const localData = JSON.parse(fs.readFileSync(localDbPath, 'utf8'));
+    if (!localData.songs || localData.songs.length === 0) return;
+
+    for (const song of localData.songs) {
+      const localFilePath = path.join(UPLOADS_DIR, song.filename);
+      if (!fs.existsSync(localFilePath)) {
+        console.warn(`⚠️ 找不到本地歌曲檔案: ${song.filename}，跳過遷移此歌曲。`);
+        continue;
+      }
+
+      console.log(`[遷移中] 歌曲: ${song.title} (${song.filename}) 至 Cloudinary...`);
+      const uploadResult = await cloudinary.uploader.upload(localFilePath, {
+        resource_type: 'auto',
+        folder: 'music_player/media'
+      });
+
+      let coverUrl = '';
+      let cloudinaryCoverPublicId = '';
+      if (song.hasCover && song.coverUrl) {
+        const coverFileName = path.basename(song.coverUrl);
+        const localCoverPath = path.join(COVERS_DIR, coverFileName);
+        if (fs.existsSync(localCoverPath)) {
+          console.log(`[遷移中] 封面: ${song.title} 至 Cloudinary...`);
+          const coverUploadResult = await cloudinary.uploader.upload(localCoverPath, {
+            resource_type: 'image',
+            folder: 'music_player/covers'
+          });
+          coverUrl = coverUploadResult.secure_url;
+          cloudinaryCoverPublicId = coverUploadResult.public_id;
+        }
+      }
+
+      const fileSize = fs.statSync(localFilePath).size;
+
+      const newSong = new Song({
+        id: song.id,
+        filename: song.filename,
+        originalName: song.originalName,
+        title: song.title,
+        artist: song.artist,
+        album: song.album,
+        duration: song.duration,
+        isVideo: song.isVideo,
+        hasCover: song.hasCover,
+        coverUrl: song.hasCover ? coverUrl : '',
+        fileUrl: uploadResult.secure_url,
+        cloudinaryPublicId: uploadResult.public_id,
+        cloudinaryCoverPublicId,
+        lyrics: song.lyrics,
+        fileSize,
+        uploadTime: song.uploadTime
+      });
+
+      await newSong.save();
+      console.log(`✅ 成功遷移歌曲: ${song.title}`);
+    }
+
+    // 遷移歌單
+    if (localData.playlists && localData.playlists.length > 0) {
+      console.log('[遷移中] 歌單資訊至 MongoDB...');
+      for (const pl of localData.playlists) {
+        const newPlaylist = new Playlist({
+          id: pl.id,
+          name: pl.name,
+          songIds: pl.songIds,
+          createTime: pl.createTime
+        });
+        await newPlaylist.save();
+      }
+      console.log('✅ 歌單遷移完成！');
+    }
+
+    console.log('--------------------------------------------------');
+    console.log('🎉 所有本地資料已成功遷移至雲端！');
+    console.log('您可以安全地刪除本地 uploads 資料夾中的舊媒體檔案與 db.json。');
+    console.log('--------------------------------------------------');
+  } catch (err) {
+    console.error('❌ 自動遷移失敗:', err.message);
+  }
+}
+
+// === 歌詞產生與字元解碼 Helpers ===
 function generateDefaultLyrics(title, artist) {
   return `[00:00.00]🎵 Nebula Stream - 自動分析與加載歌詞中...
 [00:03.00]標題：${title}
@@ -82,116 +247,7 @@ function decodeGarbledString(str) {
   return str;
 }
 
-function initDb() {
-  if (!fs.existsSync(path.join(__dirname, 'data'))) {
-    fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
-  }
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(COVERS_DIR)) {
-    fs.mkdirSync(COVERS_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ songs: [], playlists: [] }, null, 2));
-  } else {
-    // 檢查舊資料並進行轉移更新 (自動補齊 lyrics 欄位與修正亂碼)
-    try {
-      const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-      let updated = false;
-      if (data.songs) {
-        data.songs.forEach(song => {
-          if (song.lyrics === undefined) {
-            song.lyrics = generateDefaultLyrics(song.title, song.artist);
-            updated = true;
-          }
-
-          // 自動修復已上傳的亂碼資料
-          let songUpdated = false;
-          const fixedTitle = decodeGarbledString(song.title);
-          if (fixedTitle !== song.title) {
-            song.title = fixedTitle;
-            songUpdated = true;
-            updated = true;
-          }
-          
-          const fixedArtist = decodeGarbledString(song.artist);
-          if (fixedArtist !== song.artist) {
-            song.artist = fixedArtist;
-            songUpdated = true;
-            updated = true;
-          }
-
-          const fixedOriginalName = decodeGarbledString(song.originalName);
-          if (fixedOriginalName !== song.originalName) {
-            song.originalName = fixedOriginalName;
-            updated = true;
-          }
-
-          // 自動修復歌詞內可能存在的亂碼
-          if (song.lyrics) {
-            const fixedLyrics = decodeGarbledString(song.lyrics);
-            if (fixedLyrics !== song.lyrics) {
-              song.lyrics = fixedLyrics;
-              updated = true;
-            }
-            if (song.lyrics.includes('\u00e8\u008c\u0089\u00e3\u0081\u00b2\u00e3\u0082\u008b')) {
-              song.lyrics = song.lyrics.replace(/\u00e8\u008c\u0089\u00e3\u0081\u00b2\u00e3\u0082\u008b/g, '茉ひる');
-              updated = true;
-            }
-          }
-
-          // 如果這首歌的標題或歌手被修復了，且目前歌詞是預設歌詞，則重新產生以呈現正確資訊
-          if (songUpdated && song.lyrics && song.lyrics.includes('自動分析與加載歌詞中...')) {
-            song.lyrics = generateDefaultLyrics(song.title, song.artist);
-            updated = true;
-          }
-        });
-      }
-      if (updated) {
-        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-      }
-    } catch (err) {
-      console.error('資料庫轉移更新失敗:', err.message);
-    }
-  }
-}
-initDb();
-function getDirSize(dirPath) {
-  let size = 0;
-  try {
-    if (!fs.existsSync(dirPath)) return 0;
-    const stat = fs.statSync(dirPath);
-    if (!stat.isDirectory()) return stat.size;
-
-    const files = fs.readdirSync(dirPath);
-    for (let i = 0; i < files.length; i++) {
-      const filePath = path.join(dirPath, files[i]);
-      size += getDirSize(filePath);
-    }
-  } catch (err) {
-    console.error(`無法讀取目錄/檔案大小 ${dirPath}:`, err.message);
-  }
-  return size;
-}
-
 const TOTAL_QUOTA = 5 * 1024 * 1024 * 1024; // 5 GB 雲端空間限制
-
-
-function readDb() {
-  try {
-    const data = fs.readFileSync(DB_FILE, 'utf8');
-    return JSON.parse(data);
-  } catch (err) {
-    return { songs: [], playlists: [] };
-  }
-}
-
-function writeDb(data) {
-  const tmpPath = `${DB_FILE}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2));
-  fs.renameSync(tmpPath, DB_FILE);
-}
 
 // Multer 上傳設定
 const storage = multer.diskStorage({
@@ -242,15 +298,23 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 // === API 路由 ===
 
 // 1. 取得所有歌曲
-app.get('/api/songs', (req, res) => {
-  const db = readDb();
-  res.json(db.songs);
+app.get('/api/songs', async (req, res) => {
+  try {
+    const songs = await Song.find().sort({ uploadTime: -1 });
+    res.json(songs);
+  } catch (err) {
+    console.error('無法取得歌曲列表:', err);
+    res.status(500).json({ error: '無法取得歌曲列表' });
+  }
 });
 
 // 1.5. 取得儲存空間狀態
-app.get('/api/storage-status', (req, res) => {
+app.get('/api/storage-status', async (req, res) => {
   try {
-    const usedSpace = getDirSize(UPLOADS_DIR);
+    const result = await Song.aggregate([
+      { $group: { _id: null, totalSize: { $sum: '$fileSize' } } }
+    ]);
+    const usedSpace = result[0]?.totalSize || 0;
     res.json({
       success: true,
       usedSpace,
@@ -263,7 +327,7 @@ app.get('/api/storage-status', (req, res) => {
   }
 });
 
-// 2. 上傳歌曲與解析標籤
+// 2. 上傳歌曲與解析標籤，並上傳至 Cloudinary 與 MongoDB
 app.post('/api/upload', upload.single('music'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: '請選擇要上傳的檔案' });
@@ -272,17 +336,33 @@ app.post('/api/upload', upload.single('music'), async (req, res) => {
   const filePath = req.file.path;
   const fileName = req.file.filename;
 
+  // 取得檔案大小
+  let fileSize = 0;
+  try {
+    fileSize = fs.statSync(filePath).size;
+  } catch (err) {
+    fileSize = req.file.size || 0;
+  }
+
   // 檢查雲端儲存空間是否超額
-  const usedSpace = getDirSize(UPLOADS_DIR);
-  if (usedSpace > TOTAL_QUOTA) {
-    try {
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+  try {
+    const result = await Song.aggregate([
+      { $group: { _id: null, totalSize: { $sum: '$fileSize' } } }
+    ]);
+    const usedSpace = result[0]?.totalSize || 0;
+
+    if (usedSpace + fileSize > TOTAL_QUOTA) {
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (err) {
+        console.error('刪除超額檔案失敗:', err.message);
       }
-    } catch (err) {
-      console.error('刪除超額檔案失敗:', err.message);
+      return res.status(400).json({ error: '雲端儲存空間已滿，上傳失敗！空間上限為 5 GB。' });
     }
-    return res.status(400).json({ error: '雲端儲存空間已滿，上傳失敗！空間上限為 5 GB。' });
+  } catch (err) {
+    console.error('檢查配額失敗:', err);
   }
 
   // 修正 Multer 檔名亂碼 (CP1252/ISO-8859-1 轉 UTF-8)
@@ -295,7 +375,10 @@ app.post('/api/upload', upload.single('music'), async (req, res) => {
   let duration = 0;
   let hasCover = false;
   let coverUrl = '';
+  let cloudinaryCoverPublicId = '';
   let lyrics = '';
+
+  let coverTempPath = null;
 
   // 解析音訊 metadata
   try {
@@ -319,11 +402,10 @@ app.post('/api/upload', upload.single('music'), async (req, res) => {
         const coverId = uuidv4();
         const picExt = pic.format.split('/')[1] || 'jpg';
         const coverFileName = `${coverId}.${picExt}`;
-        const coverFilePath = path.join(COVERS_DIR, coverFileName);
+        coverTempPath = path.join(UPLOADS_DIR, coverFileName);
         
-        fs.writeFileSync(coverFilePath, pic.data);
+        fs.writeFileSync(coverTempPath, pic.data);
         hasCover = true;
-        coverUrl = `/uploads/covers/${coverFileName}`;
       }
     }
     
@@ -340,101 +422,165 @@ app.post('/api/upload', upload.single('music'), async (req, res) => {
 
   const isVideo = fileExt === '.mp4' || req.file.mimetype.startsWith('video/');
 
-  const newSong = {
-    id: uuidv4(),
+  // 上傳檔案至 Cloudinary
+  let cloudinarySongUrl = '';
+  let cloudinarySongPublicId = '';
+
+  try {
+    console.log(`[Cloudinary] 正在上傳媒體檔案: ${title}`);
+    const uploadResult = await cloudinary.uploader.upload(filePath, {
+      resource_type: 'auto',
+      folder: 'music_player/media'
+    });
+    cloudinarySongUrl = uploadResult.secure_url;
+    cloudinarySongPublicId = uploadResult.public_id;
+
+    // 如果有內嵌封面，也上傳至 Cloudinary
+    if (hasCover && coverTempPath) {
+      console.log(`[Cloudinary] 正在上傳封面圖片: ${title}`);
+      const coverUploadResult = await cloudinary.uploader.upload(coverTempPath, {
+        resource_type: 'image',
+        folder: 'music_player/covers'
+      });
+      coverUrl = coverUploadResult.secure_url;
+      cloudinaryCoverPublicId = coverUploadResult.public_id;
+    }
+  } catch (uploadErr) {
+    console.error('Cloudinary 上傳失敗:', uploadErr);
+    // 清除本地暫存檔案
+    try {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      if (coverTempPath && fs.existsSync(coverTempPath)) fs.unlinkSync(coverTempPath);
+    } catch (e) {}
+    return res.status(500).json({ error: '檔案上傳至雲端儲存空間失敗！' });
+  }
+
+  // 立即刪除伺服器上的本地暫存檔案
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    if (coverTempPath && fs.existsSync(coverTempPath)) fs.unlinkSync(coverTempPath);
+  } catch (e) {
+    console.error('刪除暫存檔案失敗:', e.message);
+  }
+
+  // 將資料寫入 MongoDB
+  const songId = uuidv4();
+  const newSong = new Song({
+    id: songId,
     filename: fileName,
     originalName,
     title,
     artist,
     album,
-    duration, // 秒數
+    duration,
     isVideo,
     hasCover,
     coverUrl: hasCover ? coverUrl : '',
-    fileUrl: `/uploads/${fileName}`,
-    lyrics, // 儲存歌詞
-    uploadTime: new Date().toISOString()
-  };
+    fileUrl: cloudinarySongUrl,
+    cloudinaryPublicId: cloudinarySongPublicId,
+    cloudinaryCoverPublicId,
+    lyrics,
+    fileSize,
+    uploadTime: new Date()
+  });
 
-  const db = readDb();
-  db.songs.push(newSong);
+  try {
+    await newSong.save();
 
-  // 如果有帶資料夾名稱（playlistName），自動建立該歌單並關聯這首歌
-  const playlistName = req.body.playlistName;
-  if (playlistName && playlistName.trim() !== '') {
-    const plName = playlistName.trim();
-    let playlist = db.playlists.find(p => p.name.toLowerCase() === plName.toLowerCase());
-    
-    if (!playlist) {
-      playlist = {
-        id: uuidv4(),
-        name: plName,
-        songIds: [],
-        createTime: new Date().toISOString()
-      };
-      db.playlists.push(playlist);
+    // 如果有帶資料夾名稱（playlistName），自動建立該歌單並關聯這首歌
+    const playlistName = req.body.playlistName;
+    if (playlistName && playlistName.trim() !== '') {
+      const plName = playlistName.trim();
+      let playlist = await Playlist.findOne({ name: { $regex: new RegExp(`^${plName}$`, 'i') } });
+      
+      if (!playlist) {
+        playlist = new Playlist({
+          id: uuidv4(),
+          name: plName,
+          songIds: [songId]
+        });
+        await playlist.save();
+      } else {
+        if (!playlist.songIds.includes(songId)) {
+          playlist.songIds.push(songId);
+          await playlist.save();
+        }
+      }
     }
-    
-    if (!playlist.songIds.includes(newSong.id)) {
-      playlist.songIds.push(newSong.id);
-    }
+
+    res.json({ success: true, song: newSong });
+  } catch (dbErr) {
+    console.error('寫入資料庫失敗:', dbErr);
+    res.status(500).json({ error: '寫入資料庫失敗' });
   }
-
-  writeDb(db);
-
-  res.json({ success: true, song: newSong });
 });
 
 // 3. 取得所有歌單
-app.get('/api/playlists', (req, res) => {
-  const db = readDb();
-  res.json(db.playlists);
+app.get('/api/playlists', async (req, res) => {
+  try {
+    const playlists = await Playlist.find().sort({ createTime: -1 });
+    res.json(playlists);
+  } catch (err) {
+    console.error('無法取得歌單列表:', err);
+    res.status(500).json({ error: '無法取得歌單列表' });
+  }
 });
 
 // 4. 建立歌單
-app.post('/api/playlists', (req, res) => {
+app.post('/api/playlists', async (req, res) => {
   const { name } = req.body;
   if (!name || name.trim() === '') {
     return res.status(400).json({ error: '歌單名稱不得為空' });
   }
 
-  const db = readDb();
-  const newPlaylist = {
-    id: uuidv4(),
-    name: name.trim(),
-    songIds: [],
-    createTime: new Date().toISOString()
-  };
+  try {
+    const newPlaylist = new Playlist({
+      id: uuidv4(),
+      name: name.trim(),
+      songIds: []
+    });
 
-  db.playlists.push(newPlaylist);
-  writeDb(db);
-
-  res.json({ success: true, playlist: newPlaylist });
+    await newPlaylist.save();
+    res.json({ success: true, playlist: newPlaylist });
+  } catch (err) {
+    console.error('建立歌單失敗:', err);
+    res.status(500).json({ error: '建立歌單失敗' });
+  }
 });
 
 // 5. 取得特定歌單內容 (含歌曲完整物件)
-app.get('/api/playlists/:id', (req, res) => {
+app.get('/api/playlists/:id', async (req, res) => {
   const { id } = req.params;
-  const db = readDb();
-  const playlist = db.playlists.find(p => p.id === id);
-  
-  if (!playlist) {
-    return res.status(404).json({ error: '找不到該歌單' });
+  try {
+    const playlist = await Playlist.findOne({ id });
+    
+    if (!playlist) {
+      return res.status(404).json({ error: '找不到該歌單' });
+    }
+
+    // 取得該歌單所有歌曲的完整資料
+    const songs = await Song.find({ id: { $in: playlist.songIds } });
+    
+    // 依歌單內 ID 順序排序
+    const playlistSongs = playlist.songIds
+      .map(songId => songs.find(s => s.id === songId))
+      .filter(Boolean);
+
+    res.json({
+      id: playlist.id,
+      name: playlist.name,
+      songIds: playlist.songIds,
+      createTime: playlist.createTime,
+      songs: playlistSongs
+    });
+  } catch (err) {
+    console.error('取得歌單詳情失敗:', err);
+    res.status(500).json({ error: '取得歌單詳情失敗' });
   }
-
-  // 取得該歌單所有歌曲的完整資料
-  const playlistSongs = playlist.songIds
-    .map(songId => db.songs.find(s => s.id === songId))
-    .filter(Boolean); // 過濾掉可能已不存在的歌曲
-
-  res.json({
-    ...playlist,
-    songs: playlistSongs
-  });
 });
 
 // 6. 將歌曲加入歌單
-app.post('/api/playlists/:id/songs', (req, res) => {
+app.post('/api/playlists/:id/songs', async (req, res) => {
   const { id } = req.params;
   const { songId } = req.body;
 
@@ -442,29 +588,32 @@ app.post('/api/playlists/:id/songs', (req, res) => {
     return res.status(400).json({ error: '請提供歌曲 ID' });
   }
 
-  const db = readDb();
-  const playlistIndex = db.playlists.findIndex(p => p.id === id);
-  
-  if (playlistIndex === -1) {
-    return res.status(404).json({ error: '找不到該歌單' });
-  }
+  try {
+    const playlist = await Playlist.findOne({ id });
+    if (!playlist) {
+      return res.status(404).json({ error: '找不到該歌單' });
+    }
 
-  const songExists = db.songs.some(s => s.id === songId);
-  if (!songExists) {
-    return res.status(404).json({ error: '找不到該歌曲' });
-  }
+    const songExists = await Song.exists({ id: songId });
+    if (!songExists) {
+      return res.status(404).json({ error: '找不到該歌曲' });
+    }
 
-  // 避免重複加入
-  if (!db.playlists[playlistIndex].songIds.includes(songId)) {
-    db.playlists[playlistIndex].songIds.push(songId);
-    writeDb(db);
-  }
+    // 避免重複加入
+    if (!playlist.songIds.includes(songId)) {
+      playlist.songIds.push(songId);
+      await playlist.save();
+    }
 
-  res.json({ success: true, playlist: db.playlists[playlistIndex] });
+    res.json({ success: true, playlist });
+  } catch (err) {
+    console.error('歌曲加入歌單失敗:', err);
+    res.status(500).json({ error: '歌曲加入歌單失敗' });
+  }
 });
 
 // 7. 將歌曲移出歌單
-app.post('/api/playlists/:id/songs/remove', (req, res) => {
+app.post('/api/playlists/:id/songs/remove', async (req, res) => {
   const { id } = req.params;
   const { songId } = req.body;
 
@@ -472,37 +621,39 @@ app.post('/api/playlists/:id/songs/remove', (req, res) => {
     return res.status(400).json({ error: '請提供歌曲 ID' });
   }
 
-  const db = readDb();
-  const playlistIndex = db.playlists.findIndex(p => p.id === id);
-  
-  if (playlistIndex === -1) {
-    return res.status(404).json({ error: '找不到該歌單' });
+  try {
+    const playlist = await Playlist.findOne({ id });
+    if (!playlist) {
+      return res.status(404).json({ error: '找不到該歌單' });
+    }
+
+    playlist.songIds = playlist.songIds.filter(sid => sid !== songId);
+    await playlist.save();
+
+    res.json({ success: true, playlist });
+  } catch (err) {
+    console.error('歌曲移出歌單失敗:', err);
+    res.status(500).json({ error: '歌曲移出歌單失敗' });
   }
-
-  db.playlists[playlistIndex].songIds = db.playlists[playlistIndex].songIds.filter(sid => sid !== songId);
-  writeDb(db);
-
-  res.json({ success: true, playlist: db.playlists[playlistIndex] });
 });
 
 // 8. 刪除歌單
-app.delete('/api/playlists/:id', (req, res) => {
+app.delete('/api/playlists/:id', async (req, res) => {
   const { id } = req.params;
-  const db = readDb();
-  
-  const playlistIndex = db.playlists.findIndex(p => p.id === id);
-  if (playlistIndex === -1) {
-    return res.status(404).json({ error: '找不到該歌單' });
+  try {
+    const result = await Playlist.deleteOne({ id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: '找不到該歌單' });
+    }
+    res.json({ success: true, message: '歌單已成功刪除' });
+  } catch (err) {
+    console.error('刪除歌單失敗:', err);
+    res.status(500).json({ error: '刪除歌單失敗' });
   }
-
-  db.playlists.splice(playlistIndex, 1);
-  writeDb(db);
-
-  res.json({ success: true, message: '歌單已成功刪除' });
 });
 
 // 8.5. 修改歌單名稱
-app.post('/api/playlists/:id/rename', (req, res) => {
+app.post('/api/playlists/:id/rename', async (req, res) => {
   const { id } = req.params;
   const { name } = req.body;
 
@@ -510,120 +661,116 @@ app.post('/api/playlists/:id/rename', (req, res) => {
     return res.status(400).json({ error: '請提供有效的歌單名稱' });
   }
 
-  const db = readDb();
-  const playlistIndex = db.playlists.findIndex(p => p.id === id);
-  if (playlistIndex === -1) {
-    return res.status(404).json({ error: '找不到該歌單' });
+  try {
+    const playlist = await Playlist.findOne({ id });
+    if (!playlist) {
+      return res.status(404).json({ error: '找不到該歌單' });
+    }
+
+    playlist.name = name.trim();
+    await playlist.save();
+
+    res.json({ success: true, playlist });
+  } catch (err) {
+    console.error('修改歌單名稱失敗:', err);
+    res.status(500).json({ error: '修改歌單名稱失敗' });
   }
-
-  db.playlists[playlistIndex].name = name.trim();
-  writeDb(db);
-
-  res.json({ success: true, playlist: db.playlists[playlistIndex] });
 });
 
-// 9. 刪除歌曲
-app.delete('/api/songs/:id', (req, res) => {
+// 9. 刪除歌曲 (自 MongoDB 及 Cloudinary 刪除)
+app.delete('/api/songs/:id', async (req, res) => {
   const { id } = req.params;
-  const db = readDb();
   
-  const songIndex = db.songs.findIndex(s => s.id === id);
-  if (songIndex === -1) {
-    return res.status(404).json({ error: '找不到該歌曲' });
-  }
-  
-  const song = db.songs[songIndex];
-  
-  // 1. 刪除媒體檔案
-  const filePath = path.join(UPLOADS_DIR, song.filename);
   try {
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    const song = await Song.findOne({ id });
+    if (!song) {
+      return res.status(404).json({ error: '找不到該歌曲' });
     }
-  } catch (err) {
-    console.error('刪除媒體檔案失敗:', err.message);
-  }
-  
-  // 2. 刪除封面檔案 (若有)
-  if (song.hasCover && song.coverUrl) {
-    const coverFileName = path.basename(song.coverUrl);
-    const coverPath = path.join(COVERS_DIR, coverFileName);
-    try {
-      if (fs.existsSync(coverPath)) {
-        fs.unlinkSync(coverPath);
+
+    // 1. 刪除 Cloudinary 媒體檔案
+    if (song.cloudinaryPublicId) {
+      try {
+        await cloudinary.uploader.destroy(song.cloudinaryPublicId, { resource_type: 'video' });
+      } catch (err) {
+        console.error('刪除 Cloudinary 媒體檔案失敗:', err.message);
       }
-    } catch (err) {
-      console.error('刪除封面檔案失敗:', err.message);
     }
+
+    // 2. 刪除 Cloudinary 封面檔案 (若有)
+    if (song.hasCover && song.cloudinaryCoverPublicId) {
+      try {
+        await cloudinary.uploader.destroy(song.cloudinaryCoverPublicId, { resource_type: 'image' });
+      } catch (err) {
+        console.error('刪除 Cloudinary 封面檔案失敗:', err.message);
+      }
+    }
+
+    // 3. 從所有歌單中移除該歌曲 ID
+    await Playlist.updateMany(
+      { songIds: id },
+      { $pull: { songIds: id } }
+    );
+
+    // 4. 從 Song 資料表移除
+    await Song.deleteOne({ id });
+
+    res.json({ success: true, message: '歌曲已成功刪除' });
+  } catch (err) {
+    console.error('刪除歌曲失敗:', err);
+    res.status(500).json({ error: '無法刪除歌曲' });
   }
-  
-  // 3. 從所有歌單中移除該歌曲 ID
-  db.playlists.forEach(pl => {
-    pl.songIds = pl.songIds.filter(sid => sid !== id);
-  });
-  
-  // 4. 從 songs 中移除該歌曲
-  db.songs.splice(songIndex, 1);
-  writeDb(db);
-  
-  res.json({ success: true, message: '歌曲已成功刪除' });
 });
 
 // 9.5. 批量刪除歌曲
-app.post('/api/songs/batch-delete', (req, res) => {
+app.post('/api/songs/batch-delete', async (req, res) => {
   const { songIds } = req.body;
   if (!songIds || !Array.isArray(songIds) || songIds.length === 0) {
     return res.status(400).json({ error: '請提供要刪除的歌曲 ID 清單' });
   }
 
-  const db = readDb();
-  let deletedCount = 0;
+  try {
+    const songs = await Song.find({ id: { $in: songIds } });
+    let deletedCount = 0;
 
-  songIds.forEach(id => {
-    const songIndex = db.songs.findIndex(s => s.id === id);
-    if (songIndex !== -1) {
-      const song = db.songs[songIndex];
-
-      // 1. 刪除媒體檔案
-      const filePath = path.join(UPLOADS_DIR, song.filename);
-      try {
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
+    for (const song of songs) {
+      // 1. 刪除 Cloudinary 媒體檔案
+      if (song.cloudinaryPublicId) {
+        try {
+          await cloudinary.uploader.destroy(song.cloudinaryPublicId, { resource_type: 'video' });
+        } catch (err) {
+          console.error(`刪除 Cloudinary 媒體檔案失敗 ${song.title}:`, err.message);
         }
-      } catch (err) {
-        console.error(`刪除媒體檔案失敗 ${song.filename}:`, err.message);
       }
 
-      // 2. 刪除封面檔案 (若有)
-      if (song.hasCover && song.coverUrl) {
-        const coverFileName = path.basename(song.coverUrl);
-        const coverPath = path.join(COVERS_DIR, coverFileName);
+      // 2. 刪除 Cloudinary 封面檔案 (若有)
+      if (song.hasCover && song.cloudinaryCoverPublicId) {
         try {
-          if (fs.existsSync(coverPath)) {
-            fs.unlinkSync(coverPath);
-          }
+          await cloudinary.uploader.destroy(song.cloudinaryCoverPublicId, { resource_type: 'image' });
         } catch (err) {
-          console.error('刪除封面檔案失敗:', err.message);
+          console.error(`刪除 Cloudinary 封面檔案失敗 ${song.title}:`, err.message);
         }
       }
 
       // 3. 從所有歌單中移除該歌曲 ID
-      db.playlists.forEach(pl => {
-        pl.songIds = pl.songIds.filter(sid => sid !== id);
-      });
+      await Playlist.updateMany(
+        { songIds: song.id },
+        { $pull: { songIds: song.id } }
+      );
 
-      // 4. 從 songs 中移除該歌曲
-      db.songs.splice(songIndex, 1);
+      // 4. 從 Song 資料表移除
+      await Song.deleteOne({ id: song.id });
       deletedCount++;
     }
-  });
 
-  writeDb(db);
-  res.json({ success: true, message: `成功刪除 ${deletedCount} 首歌曲！` });
+    res.json({ success: true, message: `成功刪除 ${deletedCount} 首歌曲！` });
+  } catch (err) {
+    console.error('批量刪除歌曲失敗:', err);
+    res.status(500).json({ error: '無法批量刪除歌曲' });
+  }
 });
 
 // 10. 更新歌曲歌詞
-app.post('/api/songs/:id/lyrics', (req, res) => {
+app.post('/api/songs/:id/lyrics', async (req, res) => {
   const { id } = req.params;
   const { lyrics } = req.body;
   
@@ -631,16 +778,20 @@ app.post('/api/songs/:id/lyrics', (req, res) => {
     return res.status(400).json({ error: '請提供歌詞內容' });
   }
   
-  const db = readDb();
-  const songIndex = db.songs.findIndex(s => s.id === id);
-  if (songIndex === -1) {
-    return res.status(404).json({ error: '找不到該歌曲' });
+  try {
+    const song = await Song.findOne({ id });
+    if (!song) {
+      return res.status(404).json({ error: '找不到該歌曲' });
+    }
+
+    song.lyrics = lyrics;
+    await song.save();
+
+    res.json({ success: true, song });
+  } catch (err) {
+    console.error('更新歌詞失敗:', err);
+    res.status(500).json({ error: '無法更新歌詞' });
   }
-  
-  db.songs[songIndex].lyrics = lyrics;
-  writeDb(db);
-  
-  res.json({ success: true, song: db.songs[songIndex] });
 });
 
 // 所有其他請求回傳前端首頁 (SPA 路由)

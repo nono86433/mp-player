@@ -1647,7 +1647,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateMediaSession(song) {
     if ('mediaSession' in navigator) {
       const coverUrl = song.hasCover && song.coverUrl 
-        ? window.location.origin + song.coverUrl 
+        ? (song.coverUrl.startsWith('http') ? song.coverUrl : window.location.origin + song.coverUrl)
         : window.location.origin + '/uploads/covers/default.png';
         
       navigator.mediaSession.metadata = new MediaMetadata({
